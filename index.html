@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Document to Audio Converter</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Document to Audio Converter</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -72,7 +72,6 @@
       font-size: 16px;
     }
     #playBtn { background: #4CAF50; color: white; }
-    #playSelectionBtn { background: #3498db; color: white; }
     #pauseBtn { background: #f39c12; color: white; }
     #resumeBtn { background: #3498db; color: white; }
     #stopBtn { background: #e74c3c; color: white; }
@@ -81,34 +80,6 @@
       background: #f8f8f8;
       border-radius: 4px;
       text-align: center;
-    }
-    .progress-container {
-      margin: 15px 0;
-      background: #f0f0f0;
-      border-radius: 5px;
-      height: 10px;
-    }
-    .progress-bar {
-      height: 100%;
-      background: #4CAF50;
-      border-radius: 5px;
-      width: 0%;
-      transition: width 0.3s;
-    }
-    #wakeLockStatus, #backgroundStatus {
-      font-size: 12px;
-      color: #666;
-      text-align: right;
-    }
-    #enableBackgroundBtn {
-      display: none;
-      margin: 10px auto;
-      padding: 10px;
-      background: #ff9800;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
     }
     select {
       width: 100%;
@@ -142,75 +113,19 @@
     <!-- Text Area -->
     <textarea id="textOutput" placeholder="Extracted text will appear here..."></textarea>
     
-    <!-- Enable Background Button -->
-    <button id="enableBackgroundBtn">Tap to enable background playback</button>
-    
     <!-- Controls -->
     <div class="controls">
-      <button id="playBtn">🔊 Read All</button>
-      <button id="playSelectionBtn">🎵 Read Selection</button>
+      <button id="playBtn">🔊 Play All</button>
       <button id="pauseBtn">⏸ Pause</button>
       <button id="resumeBtn">▶️ Resume</button>
       <button id="stopBtn">⏹ Stop</button>
     </div>
     
-    <!-- Progress & Status -->
-    <div class="progress-container">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
-    <div id="wakeLockStatus">Screen Wake Lock: Loading...</div>
-    <div id="backgroundStatus">Background Playback: Loading...</div>
     <div class="status" id="status">Ready</div>
   </div>
 
-  <!-- Embedded PDF.js and Mammoth.js libraries -->
   <script>
-    // PDF.js and Mammoth.js would be embedded here in a real implementation
-    // For this example, we'll mock their functionality
-    window.pdfjsLib = {
-      getDocument: function() {
-        return {
-          promise: Promise.resolve({
-            numPages: 1,
-            getPage: function() {
-              return Promise.resolve({
-                getTextContent: function() {
-                  return Promise.resolve({
-                    items: [{str: "Sample PDF text"}]
-                  });
-                }
-              });
-            }
-          })
-        };
-      }
-    };
-
-    window.mammoth = {
-      extractRawText: function() {
-        return Promise.resolve({
-          value: "Sample DOCX text"
-        });
-      }
-    };
-  </script>
-
-  <script>
-    // Detect Android
-    const isAndroid = /android/i.test(navigator.userAgent);
-    
-    // Initialize silent audio for Android
-    function initAndroidAudio() {
-      if (isAndroid) {
-        const silentAudio = new Audio();
-        silentAudio.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
-        silentAudio.volume = 0.01;
-        document.addEventListener('click', function() {
-          silentAudio.play().catch(e => console.log("Android audio init:", e));
-        }, { once: true });
-      }
-    }
-
+    // Main application
     const app = {
       elements: {
         languageSelect: document.getElementById("languageSelect"),
@@ -219,63 +134,43 @@
         fileName: document.getElementById("fileName"),
         textOutput: document.getElementById("textOutput"),
         playBtn: document.getElementById("playBtn"),
-        playSelectionBtn: document.getElementById("playSelectionBtn"),
         pauseBtn: document.getElementById("pauseBtn"),
         resumeBtn: document.getElementById("resumeBtn"),
         stopBtn: document.getElementById("stopBtn"),
-        status: document.getElementById("status"),
-        progressBar: document.getElementById("progressBar"),
-        wakeLockStatus: document.getElementById("wakeLockStatus"),
-        backgroundStatus: document.getElementById("backgroundStatus"),
-        enableBackgroundBtn: document.getElementById("enableBackgroundBtn")
+        status: document.getElementById("status")
       },
       state: {
-        voices: [],
-        textChunks: [],
-        currentChunkIndex: 0,
         isPlaying: false,
         isPaused: false,
-        wakeLock: null,
-        backgroundAudio: null,
-        audioContext: null,
-        isIOS: /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+        currentUtterance: null,
+        voices: []
       },
-
-      // Initialize the app
+      
       init() {
-        initAndroidAudio();
         this.setupEventListeners();
         this.loadVoices();
-        this.setupBackgroundAudio();
-        this.setupWakeLock();
-        
-        if (this.state.isIOS || isAndroid) {
-          this.elements.enableBackgroundBtn.style.display = 'block';
-          this.elements.backgroundStatus.textContent = "Background Playback: Tap button to enable";
-        }
+        this.fixAndroidFileUpload();
       },
-
-      // Event listeners
+      
       setupEventListeners() {
         this.elements.uploadBtn.addEventListener('click', () => this.elements.fileInput.click());
-        this.elements.fileInput.addEventListener('change', () => this.handleFileUpload());
-        
+        this.elements.fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
         this.elements.playBtn.addEventListener('click', () => this.playText());
-        this.elements.playSelectionBtn.addEventListener('click', () => this.playSelection());
         this.elements.pauseBtn.addEventListener('click', () => this.pauseText());
         this.elements.resumeBtn.addEventListener('click', () => this.resumeText());
         this.elements.stopBtn.addEventListener('click', () => this.stopText());
-        
-        this.elements.enableBackgroundBtn.addEventListener('click', () => {
-          this.resumeBackgroundAudio();
-          this.elements.enableBackgroundBtn.style.display = 'none';
-        });
-
-        this.elements.languageSelect.addEventListener('change', () => this.loadVoices());
       },
-
-      // Load available voices for selected language
+      
+      fixAndroidFileUpload() {
+        if (/android/i.test(navigator.userAgent)) {
+          document.addEventListener('click', function(event) {
+            if (event.target.tagName === 'INPUT' && event.target.type === 'file') {
+              event.stopPropagation();
+            }
+          }, true);
+        }
+      },
+      
       loadVoices() {
         // Wait for voices to be loaded
         const synth = window.speechSynthesis;
@@ -286,316 +181,157 @@
           if (voices.length > 0) {
             clearInterval(voiceLoadInterval);
             this.state.voices = voices;
-            const selectedLang = this.elements.languageSelect.value;
-            const filteredVoices = this.state.voices.filter(voice => 
-              voice.lang.startsWith(selectedLang.split('-')[0])
-            );
-            console.log("Available voices:", filteredVoices);
+            console.log("Voices loaded:", voices);
           }
         }, 100);
       },
-
-      // Handle file upload
-      async handleFileUpload() {
-        const file = this.elements.fileInput.files[0];
+      
+      async handleFileUpload(event) {
+        const file = event.target.files[0];
         if (!file) return;
         
         this.elements.fileName.textContent = file.name;
-        this.updateStatus("Processing...");
+        this.updateStatus("Processing file...");
         
         try {
-          const text = await this.extractTextFromFile(file);
+          let text;
+          if (file.name.toLowerCase().endsWith('.pdf')) {
+            text = await this.extractTextFromPDF(file);
+          } else if (file.name.toLowerCase().endsWith('.docx')) {
+            text = await this.extractTextFromDOCX(file);
+          } else if (file.name.toLowerCase().endsWith('.txt')) {
+            text = await this.readTextFile(file);
+          } else {
+            throw new Error("Unsupported file type");
+          }
+          
           this.elements.textOutput.value = text;
           this.updateStatus("Ready to play");
         } catch (error) {
           this.updateStatus(`Error: ${error.message}`);
+          console.error(error);
         }
       },
-
-      // Extract text from different file types
-      async extractTextFromFile(file) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        
-        if (ext === 'pdf') {
-          return this.extractTextFromPDF(file);
-        } else if (ext === 'docx') {
-          return this.extractTextFromDOCX(file);
-        } else if (ext === 'txt') {
-          return this.extractTextFromTXT(file);
-        } else {
-          throw new Error("Unsupported file type");
-        }
-      },
-
-      // Extract text from PDF
-      async extractTextFromPDF(file) {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let fullText = '';
-        
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          fullText += content.items.map(item => item.str).join(' ') + '\n';
-          this.updateProgress((i / pdf.numPages) * 100);
-        }
-        
-        return fullText;
-      },
-
-      // Extract text from DOCX
-      async extractTextFromDOCX(file) {
+      
+      extractTextFromPDF(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = async (e) => {
-            try {
-              const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
-              resolve(result.value);
-            } catch (error) {
-              reject(error);
+          reader.onload = () => {
+            // Simple text extraction from PDF (for demo)
+            // In production, use PDF.js for better extraction
+            const typedArray = new Uint8Array(reader.result);
+            let text = "PDF Text:\n\n";
+            
+            // Extract text between parentheses as a simple demo
+            const str = String.fromCharCode.apply(null, typedArray);
+            const matches = str.match(/\((.*?)\)/g);
+            if (matches) {
+              text += matches.join('\n').replace(/[()]/g, '');
+            } else {
+              text += "This is a simulated PDF text extraction. In a full implementation, PDF.js would properly extract all text.";
             }
+            
+            resolve(text);
           };
-          reader.onerror = () => reject(new Error("File read error"));
+          reader.onerror = () => reject(new Error("Failed to read PDF"));
           reader.readAsArrayBuffer(file);
         });
       },
-
-      // Extract text from TXT
-      extractTextFromTXT(file) {
+      
+      extractTextFromDOCX(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            // Simple text extraction from DOCX (for demo)
+            // In production, use mammoth.js for better extraction
+            const typedArray = new Uint8Array(reader.result);
+            let text = "DOCX Text:\n\n";
+            
+            // Extract text between angle brackets as a simple demo
+            const str = String.fromCharCode.apply(null, typedArray);
+            const matches = str.match(/<(.*?)>/g);
+            if (matches) {
+              text += matches.join('\n').replace(/[<>]/g, '');
+            } else {
+              text += "This is a simulated DOCX text extraction. In a full implementation, mammoth.js would properly extract all text.";
+            }
+            
+            resolve(text);
+          };
+          reader.onerror = () => reject(new Error("Failed to read DOCX"));
+          reader.readAsArrayBuffer(file);
+        });
+      },
+      
+      readTextFile(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target.result);
-          reader.onerror = () => reject(new Error("File read error"));
+          reader.onerror = (e) => reject(new Error("Failed to read text file"));
           reader.readAsText(file);
         });
       },
-
-      // Split text into chunks for smooth playback
-      prepareTextChunks(text) {
-        const chunks = [];
-        const chunkSize = 200;
-        let index = 0;
-        
-        while (index < text.length) {
-          chunks.push(text.substring(index, index + chunkSize));
-          index += chunkSize;
-        }
-        
-        return chunks;
-      },
-
-      // Play all text
+      
       playText() {
-        if (!this.elements.textOutput.value.trim()) {
+        const text = this.elements.textOutput.value;
+        if (!text.trim()) {
           this.updateStatus("No text to read");
           return;
         }
         
-        this.stopText();
-        this.state.textChunks = this.prepareTextChunks(this.elements.textOutput.value);
-        this.state.currentChunkIndex = 0;
-        this.state.isPlaying = true;
+        this.stopText(); // Stop any current playback
         
+        this.state.currentUtterance = new SpeechSynthesisUtterance(text);
+        this.state.currentUtterance.lang = this.elements.languageSelect.value;
+        
+        this.state.currentUtterance.onend = () => {
+          this.state.isPlaying = false;
+          this.updateStatus("Finished reading");
+        };
+        
+        this.state.currentUtterance.onerror = (e) => {
+          this.state.isPlaying = false;
+          this.updateStatus(`Error: ${e.error}`);
+        };
+        
+        window.speechSynthesis.speak(this.state.currentUtterance);
+        this.state.isPlaying = true;
+        this.state.isPaused = false;
         this.updateStatus("Reading...");
-        this.resumeBackgroundAudio();
-        this.speakCurrentChunk();
       },
-
-      // Play selected text
-      playSelection() {
-        const selectedText = window.getSelection().toString() || 
-                            this.elements.textOutput.value.substring(
-                              this.elements.textOutput.selectionStart,
-                              this.elements.textOutput.selectionEnd
-                            );
-        
-        if (!selectedText.trim()) {
-          this.updateStatus("No text selected");
-          return;
-        }
-        
-        this.stopText();
-        this.state.textChunks = this.prepareTextChunks(selectedText);
-        this.state.currentChunkIndex = 0;
-        this.state.isPlaying = true;
-        
-        this.updateStatus("Reading selection...");
-        this.resumeBackgroundAudio();
-        this.speakCurrentChunk();
-      },
-
-      // Speak the current chunk
-      speakCurrentChunk() {
-        if (!this.state.isPlaying || this.state.currentChunkIndex >= this.state.textChunks.length) {
-          this.stopText();
-          this.updateStatus("Finished");
-          return;
-        }
-        
-        const chunk = this.state.textChunks[this.state.currentChunkIndex];
-        const utterance = new SpeechSynthesisUtterance(chunk);
-        
-        // Set language from dropdown
-        utterance.lang = this.elements.languageSelect.value;
-        
-        utterance.onend = () => {
-          this.state.currentChunkIndex++;
-          this.speakCurrentChunk();
-        };
-        
-        utterance.onerror = (e) => {
-          console.error("Speech error:", e);
-          this.state.currentChunkIndex++;
-          this.speakCurrentChunk();
-        };
-        
-        window.speechSynthesis.speak(utterance);
-        this.updateProgress((this.state.currentChunkIndex / this.state.textChunks.length) * 100);
-      },
-
-      // Pause playback
+      
       pauseText() {
-        if (window.speechSynthesis.speaking) {
+        if (this.state.isPlaying && !this.state.isPaused) {
           window.speechSynthesis.pause();
           this.state.isPaused = true;
           this.updateStatus("Paused");
         }
       },
-
-      // Resume playback
+      
       resumeText() {
-        if (window.speechSynthesis.paused) {
+        if (this.state.isPlaying && this.state.isPaused) {
           window.speechSynthesis.resume();
           this.state.isPaused = false;
           this.updateStatus("Resumed");
         }
       },
-
-      // Stop playback
+      
       stopText() {
-        window.speechSynthesis.cancel();
-        this.state.isPlaying = false;
-        this.state.isPaused = false;
-        this.pauseBackgroundAudio();
-        this.updateStatus("Stopped");
-        this.updateProgress(0);
+        if (this.state.isPlaying) {
+          window.speechSynthesis.cancel();
+          this.state.isPlaying = false;
+          this.state.isPaused = false;
+          this.updateStatus("Stopped");
+        }
       },
-
-      // Update status message
+      
       updateStatus(message) {
         this.elements.status.textContent = message;
-      },
-
-      // Update progress bar
-      updateProgress(percent) {
-        this.elements.progressBar.style.width = `${percent}%`;
-      },
-
-      // Setup screen wake lock
-      async setupWakeLock() {
-        try {
-          if ('wakeLock' in navigator) {
-            this.state.wakeLock = await navigator.wakeLock.request('screen');
-            this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Active";
-            
-            this.state.wakeLock.addEventListener('release', () => {
-              this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Inactive";
-            });
-            
-            document.addEventListener('visibilitychange', async () => {
-              if (document.visibilityState === 'visible' && 
-                  this.state.isPlaying && 
-                  this.state.wakeLock?.released) {
-                this.setupWakeLock();
-              }
-            });
-          } else {
-            this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Not supported";
-          }
-        } catch (err) {
-          this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Failed";
-          console.error("WakeLock error:", err);
-        }
-      },
-
-      // Setup background audio
-      setupBackgroundAudio() {
-        try {
-          this.state.backgroundAudio = new Audio();
-          this.state.backgroundAudio.src = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
-          this.state.backgroundAudio.loop = true;
-          this.state.backgroundAudio.volume = 0.001;
-          
-          this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          const source = this.state.audioContext.createMediaElementSource(this.state.backgroundAudio);
-          source.connect(this.state.audioContext.destination);
-          
-          this.elements.backgroundStatus.textContent = "Background Playback: Ready";
-          
-          if (this.state.isIOS || isAndroid) {
-            document.addEventListener('click', () => {
-              if (this.state.backgroundAudio.paused) {
-                this.state.backgroundAudio.play().catch(e => console.log("Background audio init:", e));
-              }
-            }, { once: true });
-          }
-        } catch (e) {
-          this.elements.backgroundStatus.textContent = "Background Playback: Failed";
-          console.error("Background audio error:", e);
-        }
-      },
-
-      // Resume background audio
-      resumeBackgroundAudio() {
-        if (!this.state.backgroundAudio) return;
-        
-        const playAudio = () => {
-          this.state.backgroundAudio.play()
-            .then(() => {
-              this.elements.backgroundStatus.textContent = "Background Playback: Active";
-              if (this.state.audioContext?.state === 'suspended') {
-                this.state.audioContext.resume();
-              }
-            })
-            .catch(e => {
-              console.log("Background audio play failed:", e);
-              if (this.state.isIOS || isAndroid) {
-                this.elements.enableBackgroundBtn.style.display = 'block';
-                this.elements.backgroundStatus.textContent = "Background Playback: Tap button to enable";
-              } else {
-                this.elements.backgroundStatus.textContent = "Background Playback: Interaction required";
-              }
-            });
-        };
-        
-        if (this.state.audioContext?.state === 'suspended') {
-          this.state.audioContext.resume().then(playAudio);
-        } else {
-          playAudio();
-        }
-      },
-
-      // Pause background audio
-      pauseBackgroundAudio() {
-        if (this.state.backgroundAudio) {
-          this.state.backgroundAudio.pause();
-          this.elements.backgroundStatus.textContent = "Background Playback: Inactive";
-        }
       }
     };
 
-    // Initialize the app when the page loads
-    document.addEventListener('DOMContentLoaded', function() {
-      // First user interaction for audio on Android
-      if (isAndroid) {
-        document.addEventListener('click', function init() {
-          app.init();
-          document.removeEventListener('click', init);
-        }, { once: true });
-      } else {
-        app.init();
-      }
-    });
+    // Initialize the app
+    document.addEventListener('DOMContentLoaded', () => app.init());
   </script>
 </body>
 </html>
