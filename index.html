@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Document to Audio Converter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      padding: 20px;
+      margin: 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 25px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border-radius: 8px;
+    }
+    h2 {
+      text-align: center;
+      color: #333;
+    }
+    .upload-area {
+      border: 2px dashed #ccc;
+      padding: 20px;
+      text-align: center;
+      margin: 15px 0;
+      border-radius: 5px;
+      background: #f9f9f9;
+    }
+    #fileInput {
+      display: none;
+    }
+    .upload-btn {
+      background: #4CAF50;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .file-name {
+      margin-top: 10px;
+      color: #666;
+    }
+    textarea {
+      width: 100%;
+      height: 200px;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .controls button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    #playBtn { background: #4CAF50; color: white; }
+    #playSelectionBtn { background: #3498db; color: white; }
+    #pauseBtn { background: #f39c12; color: white; }
+    #resumeBtn { background: #3498db; color: white; }
+    #stopBtn { background: #e74c3c; color: white; }
+    .status {
+      padding: 10px;
+      background: #f8f8f8;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .progress-container {
+      margin: 15px 0;
+      background: #f0f0f0;
+      border-radius: 5px;
+      height: 10px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: #4CAF50;
+      border-radius: 5px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    #wakeLockStatus, #backgroundStatus {
+      font-size: 12px;
+      color: #666;
+      text-align: right;
+    }
+    #enableBackgroundBtn {
+      display: none;
+      margin: 10px auto;
+      padding: 10px;
+      background: #ff9800;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    select {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📄🔊 Document to Audio Converter (Hindi Supported)</h2>
+    
+    <!-- Language Selection -->
+    <label for="languageSelect">Select Language:</label>
+    <select id="languageSelect">
+      <option value="hi-IN">Hindi</option>
+      <option value="en-US">English</option>
+      <option value="bn-BD">Bengali</option>
+    </select>
+    
+    <!-- File Upload -->
+    <div class="upload-area">
+      <p>Drag and drop file or</p>
+      <button class="upload-btn" id="uploadBtn">Choose File (PDF/DOCX/TXT)</button>
+      <div class="file-name" id="fileName">No file selected</div>
+      <input type="file" id="fileInput" accept=".pdf,.docx,.txt">
+    </div>
+    
+    <!-- Text Area -->
+    <textarea id="textOutput" placeholder="Extracted text will appear here..."></textarea>
+    
+    <!-- Enable Background Button (for iOS) -->
+    <button id="enableBackgroundBtn">Tap to enable background playback</button>
+    
+    <!-- Controls -->
+    <div class="controls">
+      <button id="playBtn">🔊 Read All</button>
+      <button id="playSelectionBtn">🎵 Read Selection</button>
+      <button id="pauseBtn">⏸ Pause</button>
+      <button id="resumeBtn">▶️ Resume</button>
+      <button id="stopBtn">⏹ Stop</button>
+    </div>
+    
+    <!-- Progress & Status -->
+    <div class="progress-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div id="wakeLockStatus">Screen Wake Lock: Loading...</div>
+    <div id="backgroundStatus">Background Playback: Loading...</div>
+    <div class="status" id="status">Ready</div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+
+  <script>
+    const app = {
+      elements: {
+        languageSelect: document.getElementById("languageSelect"),
+        uploadBtn: document.getElementById("uploadBtn"),
+        fileInput: document.getElementById("fileInput"),
+        fileName: document.getElementById("fileName"),
+        textOutput: document.getElementById("textOutput"),
+        playBtn: document.getElementById("playBtn"),
+        playSelectionBtn: document.getElementById("playSelectionBtn"),
+        pauseBtn: document.getElementById("pauseBtn"),
+        resumeBtn: document.getElementById("resumeBtn"),
+        stopBtn: document.getElementById("stopBtn"),
+        status: document.getElementById("status"),
+        progressBar: document.getElementById("progressBar"),
+        wakeLockStatus: document.getElementById("wakeLockStatus"),
+        backgroundStatus: document.getElementById("backgroundStatus"),
+        enableBackgroundBtn: document.getElementById("enableBackgroundBtn")
+      },
+      state: {
+        voices: [],
+        textChunks: [],
+        currentChunkIndex: 0,
+        isPlaying: false,
+        isPaused: false,
+        wakeLock: null,
+        backgroundAudio: null,
+        audioContext: null,
+        isIOS: /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+      },
+
+      // Initialize the app
+      init() {
+        this.setupEventListeners();
+        this.loadVoices();
+        this.setupBackgroundAudio();
+        this.setupWakeLock();
+        
+        // Special handling for iOS
+        if (this.state.isIOS) {
+          this.elements.enableBackgroundBtn.style.display = 'block';
+          this.elements.backgroundStatus.textContent = "Background Playback: Tap button to enable";
+        }
+      },
+
+      // Event listeners
+      setupEventListeners() {
+        this.elements.uploadBtn.addEventListener('click', () => this.elements.fileInput.click());
+        this.elements.fileInput.addEventListener('change', () => this.handleFileUpload());
+        
+        this.elements.playBtn.addEventListener('click', () => this.playText());
+        this.elements.playSelectionBtn.addEventListener('click', () => this.playSelection());
+        this.elements.pauseBtn.addEventListener('click', () => this.pauseText());
+        this.elements.resumeBtn.addEventListener('click', () => this.resumeText());
+        this.elements.stopBtn.addEventListener('click', () => this.stopText());
+        
+        this.elements.enableBackgroundBtn.addEventListener('click', () => {
+          this.resumeBackgroundAudio();
+          this.elements.enableBackgroundBtn.style.display = 'none';
+        });
+
+        // Update voices when language changes
+        this.elements.languageSelect.addEventListener('change', () => this.loadVoices());
+      },
+
+      // Load available voices for selected language
+      loadVoices() {
+        this.state.voices = window.speechSynthesis.getVoices();
+        const selectedLang = this.elements.languageSelect.value;
+        
+        // Filter voices for selected language
+        const filteredVoices = this.state.voices.filter(voice => 
+          voice.lang.startsWith(selectedLang.split('-')[0])
+        );
+        
+        console.log("Available voices:", filteredVoices);
+      },
+
+      // Handle file upload (PDF/DOCX/TXT)
+      async handleFileUpload() {
+        const file = this.elements.fileInput.files[0];
+        if (!file) return;
+        
+        this.elements.fileName.textContent = file.name;
+        this.updateStatus("Processing...");
+        
+        try {
+          const text = await this.extractTextFromFile(file);
+          this.elements.textOutput.value = text;
+          this.updateStatus("Ready to play");
+        } catch (error) {
+          this.updateStatus(`Error: ${error.message}`);
+        }
+      },
+
+      // Extract text from different file types
+      async extractTextFromFile(file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        if (ext === 'pdf') {
+          return this.extractTextFromPDF(file);
+        } else if (ext === 'docx') {
+          return this.extractTextFromDOCX(file);
+        } else if (ext === 'txt') {
+          return this.extractTextFromTXT(file);
+        } else {
+          throw new Error("Unsupported file type");
+        }
+      },
+
+      // Extract text from PDF
+      async extractTextFromPDF(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          fullText += content.items.map(item => item.str).join(' ') + '\n';
+          this.updateProgress((i / pdf.numPages) * 100);
+        }
+        
+        return fullText;
+      },
+
+      // Extract text from DOCX
+      async extractTextFromDOCX(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            try {
+              const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
+              resolve(result.value);
+            } catch (error) {
+              reject(error);
+            }
+          };
+          reader.onerror = () => reject(new Error("File read error"));
+          reader.readAsArrayBuffer(file);
+        });
+      },
+
+      // Extract text from TXT
+      extractTextFromTXT(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.onerror = () => reject(new Error("File read error"));
+          reader.readAsText(file);
+        });
+      },
+
+      // Split text into chunks for smooth playback
+      prepareTextChunks(text) {
+        const chunks = [];
+        const chunkSize = 200;
+        let index = 0;
+        
+        while (index < text.length) {
+          chunks.push(text.substring(index, index + chunkSize));
+          index += chunkSize;
+        }
+        
+        return chunks;
+      },
+
+      // Play all text
+      playText() {
+        if (!this.elements.textOutput.value.trim()) {
+          this.updateStatus("No text to read");
+          return;
+        }
+        
+        this.stopText();
+        this.state.textChunks = this.prepareTextChunks(this.elements.textOutput.value);
+        this.state.currentChunkIndex = 0;
+        this.state.isPlaying = true;
+        
+        this.updateStatus("Reading...");
+        this.resumeBackgroundAudio();
+        this.speakCurrentChunk();
+      },
+
+      // Play selected text
+      playSelection() {
+        const selectedText = window.getSelection().toString() || 
+                            this.elements.textOutput.value.substring(
+                              this.elements.textOutput.selectionStart,
+                              this.elements.textOutput.selectionEnd
+                            );
+        
+        if (!selectedText.trim()) {
+          this.updateStatus("No text selected");
+          return;
+        }
+        
+        this.stopText();
+        this.state.textChunks = this.prepareTextChunks(selectedText);
+        this.state.currentChunkIndex = 0;
+        this.state.isPlaying = true;
+        
+        this.updateStatus("Reading selection...");
+        this.resumeBackgroundAudio();
+        this.speakCurrentChunk();
+      },
+
+      // Speak the current chunk
+      speakCurrentChunk() {
+        if (!this.state.isPlaying || this.state.currentChunkIndex >= this.state.textChunks.length) {
+          this.stopText();
+          this.updateStatus("Finished");
+          return;
+        }
+        
+        const chunk = this.state.textChunks[this.state.currentChunkIndex];
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        
+        // Set language from dropdown
+        utterance.lang = this.elements.languageSelect.value;
+        
+        utterance.onend = () => {
+          this.state.currentChunkIndex++;
+          this.speakCurrentChunk();
+        };
+        
+        utterance.onerror = (e) => {
+          console.error("Speech error:", e);
+          this.state.currentChunkIndex++;
+          this.speakCurrentChunk();
+        };
+        
+        window.speechSynthesis.speak(utterance);
+        this.updateProgress((this.state.currentChunkIndex / this.state.textChunks.length) * 100);
+      },
+
+      // Pause playback
+      pauseText() {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          this.state.isPaused = true;
+          this.updateStatus("Paused");
+        }
+      },
+
+      // Resume playback
+      resumeText() {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+          this.state.isPaused = false;
+          this.updateStatus("Resumed");
+        }
+      },
+
+      // Stop playback
+      stopText() {
+        window.speechSynthesis.cancel();
+        this.state.isPlaying = false;
+        this.state.isPaused = false;
+        this.pauseBackgroundAudio();
+        this.updateStatus("Stopped");
+        this.updateProgress(0);
+      },
+
+      // Update status message
+      updateStatus(message) {
+        this.elements.status.textContent = message;
+      },
+
+      // Update progress bar
+      updateProgress(percent) {
+        this.elements.progressBar.style.width = `${percent}%`;
+      },
+
+      // ===== BACKGROUND PLAYBACK & SCREEN WAKE LOCK =====
+      
+      // Setup screen wake lock (prevents screen sleep)
+      async setupWakeLock() {
+        try {
+          if ('wakeLock' in navigator) {
+            this.state.wakeLock = await navigator.wakeLock.request('screen');
+            this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Active";
+            
+            this.state.wakeLock.addEventListener('release', () => {
+              this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Inactive";
+            });
+            
+            // Reacquire when visibility changes
+            document.addEventListener('visibilitychange', async () => {
+              if (document.visibilityState === 'visible' && 
+                  this.state.isPlaying && 
+                  this.state.wakeLock?.released) {
+                this.setupWakeLock();
+              }
+            });
+          } else {
+            this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Not supported";
+          }
+        } catch (err) {
+          this.elements.wakeLockStatus.textContent = "Screen Wake Lock: Failed";
+          console.error("WakeLock error:", err);
+        }
+      },
+
+      // Setup background audio (silent playback to keep audio alive)
+      setupBackgroundAudio() {
+        try {
+          this.state.backgroundAudio = new Audio();
+          // A silent MP3 file encoded as base64
+          this.state.backgroundAudio.src = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+          this.state.backgroundAudio.loop = true;
+          this.state.backgroundAudio.volume = 0.001; // Nearly silent
+          
+          // Setup Web Audio API for better control
+          this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const source = this.state.audioContext.createMediaElementSource(this.state.backgroundAudio);
+          source.connect(this.state.audioContext.destination);
+          
+          this.elements.backgroundStatus.textContent = "Background Playback: Ready";
+          
+          // iOS requires user interaction to play audio
+          if (this.state.isIOS) {
+            document.addEventListener('click', () => {
+              if (this.state.backgroundAudio.paused) {
+                this.state.backgroundAudio.play().catch(e => console.log("Background audio init:", e));
+              }
+            }, { once: true });
+          }
+        } catch (e) {
+          this.elements.backgroundStatus.textContent = "Background Playback: Failed";
+          console.error("Background audio error:", e);
+        }
+      },
+
+      // Resume background audio (to keep playback alive)
+      resumeBackgroundAudio() {
+        if (!this.state.backgroundAudio) return;
+        
+        const playAudio = () => {
+          this.state.backgroundAudio.play()
+            .then(() => {
+              this.elements.backgroundStatus.textContent = "Background Playback: Active";
+              if (this.state.audioContext?.state === 'suspended') {
+                this.state.audioContext.resume();
+              }
+            })
+            .catch(e => {
+              console.log("Background audio play failed:", e);
+              if (this.state.isIOS) {
+                this.elements.enableBackgroundBtn.style.display = 'block';
+                this.elements.backgroundStatus.textContent = "Background Playback: Tap button to enable";
+              } else {
+                this.elements.backgroundStatus.textContent = "Background Playback: Interaction required";
+              }
+            });
+        };
+        
+        // On iOS, we need to ensure the audio context is running
+        if (this.state.audioContext?.state === 'suspended') {
+          this.state.audioContext.resume().then(playAudio);
+        } else {
+          playAudio();
+        }
+      },
+
+      // Pause background audio
+      pauseBackgroundAudio() {
+        if (this.state.backgroundAudio) {
+          this.state.backgroundAudio.pause();
+          this.elements.backgroundStatus.textContent = "Background Playback: Inactive";
+        }
+      }
+    };
+
+    // Initialize the app when the page loads
+    window.addEventListener('load', () => app.init());
+  </script>
+</body>
+</html>
